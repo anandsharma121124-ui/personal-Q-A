@@ -1,0 +1,155 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net - Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helper Functions ---
+    
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function getWorkspace(workspaceId) {
+      return get(/databases/$(database)/documents/workspaces/$(workspaceId)).data;
+    }
+
+    function isWorkspaceMember(workspaceId) {
+      return isSignedIn() && (
+        getWorkspace(workspaceId).ownerId == request.auth.uid ||
+        request.auth.uid in getWorkspace(workspaceId).members
+      );
+    }
+
+    // --- Validations ---
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['userId', 'email'])
+        && data.keys().size() <= 5
+        && data.userId == request.auth.uid
+        && data.email is string && data.email.size() <= 256;
+    }
+
+    function isValidWorkspace(data, workspaceId) {
+      return data.keys().hasAll(['workspaceId', 'name', 'ownerId'])
+        && data.keys().size() <= 5
+        && data.workspaceId == workspaceId
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 100
+        && data.ownerId == request.auth.uid
+        && (data.members is list && data.members.size() <= 50);
+    }
+
+    function isValidDocument(data, workspaceId, documentId) {
+      return data.keys().hasAll(['documentId', 'workspaceId', 'name', 'sourceType', 'status'])
+        && data.keys().size() <= 10
+        && data.documentId == documentId
+        && data.workspaceId == workspaceId
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 512
+        && data.sourceType is string && data.sourceType in ['PDF', 'DOCX', 'TXT', 'Markdown', 'CSV', 'Image', 'URL', 'YouTube']
+        && data.status is string && data.status in ['processing', 'completed', 'failed'];
+    }
+
+    function isValidChunk(data, workspaceId, chunkId) {
+      return data.keys().hasAll(['chunkId', 'documentId', 'workspaceId', 'text', 'embedding', 'index'])
+        && data.keys().size() <= 7
+        && data.chunkId == chunkId
+        && data.workspaceId == workspaceId
+        && data.documentId is string && data.documentId.size() <= 128
+        && data.text is string && data.text.size() > 0 && data.text.size() <= 20000
+        && data.embedding is list && data.embedding.size() <= 1024
+        && data.index is int;
+    }
+
+    function isValidConversation(data, workspaceId, conversationId) {
+      return data.keys().hasAll(['conversationId', 'workspaceId', 'userId', 'title'])
+        && data.keys().size() <= 6
+        && data.conversationId == conversationId
+        && data.workspaceId == workspaceId
+        && data.userId == request.auth.uid
+        && data.title is string && data.title.size() <= 256;
+    }
+
+    function isValidMessage(data, conversationId, messageId) {
+      return data.keys().hasAll(['messageId', 'conversationId', 'sender', 'text'])
+        && data.keys().size() <= 6
+        && data.messageId == messageId
+        && data.conversationId == conversationId
+        && data.sender is string && data.sender in ['user', 'ai']
+        && data.text is string && data.text.size() <= 50000;
+    }
+
+    // --- Collections Match Blocks ---
+
+    // 1. Users Collection
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow create, update: if isOwner(userId) && isValidUser(request.resource.data);
+      allow delete: if isOwner(userId);
+    }
+
+    // 2. Workspaces Collection
+    match /workspaces/{workspaceId} {
+      allow get: if isSignedIn() && (resource.data.ownerId == request.auth.uid || request.auth.uid in resource.data.members);
+      allow list: if isSignedIn() && (resource.data.ownerId == request.auth.uid || request.auth.uid in resource.data.members);
+      
+      allow create: if isSignedIn() && isValidId(workspaceId) && isValidWorkspace(request.resource.data, workspaceId);
+      allow update: if isSignedIn() && resource.data.ownerId == request.auth.uid && isValidWorkspace(request.resource.data, workspaceId);
+      allow delete: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+
+      // 3. Documents nested under Workspace (Master Gate)
+      match /documents/{documentId} {
+        allow get: if isWorkspaceMember(workspaceId);
+        allow list: if isWorkspaceMember(workspaceId);
+        
+        allow create, update: if isWorkspaceMember(workspaceId) 
+          && isValidId(documentId) 
+          && isValidDocument(request.resource.data, workspaceId, documentId);
+        allow delete: if isWorkspaceMember(workspaceId);
+      }
+
+      // 4. Chunks nested under Workspace (Master Gate)
+      match /chunks/{chunkId} {
+        allow get: if isWorkspaceMember(workspaceId);
+        allow list: if isWorkspaceMember(workspaceId);
+        
+        allow create, update: if isWorkspaceMember(workspaceId) 
+          && isValidId(chunkId) 
+          && isValidChunk(request.resource.data, workspaceId, chunkId);
+        allow delete: if isWorkspaceMember(workspaceId);
+      }
+
+      // 5. Conversations nested under Workspace (Master Gate)
+      match /conversations/{conversationId} {
+        allow get: if isWorkspaceMember(workspaceId);
+        allow list: if isWorkspaceMember(workspaceId);
+        
+        allow create, update: if isWorkspaceMember(workspaceId) 
+          && isValidId(conversationId) 
+          && isValidConversation(request.resource.data, workspaceId, conversationId);
+        allow delete: if isWorkspaceMember(workspaceId);
+
+        // 6. Messages nested under Conversations
+        match /messages/{messageId} {
+          allow get: if isWorkspaceMember(workspaceId);
+          allow list: if isWorkspaceMember(workspaceId);
+          
+          allow create, update: if isWorkspaceMember(workspaceId) 
+            && isValidId(messageId) 
+            && isValidMessage(request.resource.data, conversationId, messageId);
+          allow delete: if isWorkspaceMember(workspaceId);
+        }
+      }
+    }
+  }
+}

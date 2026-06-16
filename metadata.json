@@ -1,0 +1,6 @@
+{
+  "name": "Personal Knowledge Base Q&A",
+  "description": "An AI-powered knowledge assistant where you can upload documents and links, index them into a secure Firestore knowledge base, and ask natural language questions with source citations.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

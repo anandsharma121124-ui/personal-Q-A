@@ -1,0 +1,117 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User profile stored in Firestore, keyed by their authenticated UID.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Unique user ID" },
+        "email": { "type": "string", "description": "User's email" },
+        "displayName": { "type": "string", "description": "Display name" },
+        "photoURL": { "type": "string", "description": "Profile picture URL" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When user first logged in" }
+      },
+      "required": ["userId", "email"]
+    },
+    "Workspace": {
+      "title": "Workspace",
+      "description": "A workspace where documents and conversations are managed. Accessible by workspace owners/members.",
+      "type": "object",
+      "properties": {
+        "workspaceId": { "type": "string", "description": "Unique workspace ID" },
+        "name": { "type": "string", "description": "Name of the workspace" },
+        "ownerId": { "type": "string", "description": "User ID of the creator/owner" },
+        "members": { "type": "array", "description": "List of user IDs with access" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["workspaceId", "name", "ownerId"]
+    },
+    "Document": {
+      "title": "Document",
+      "description": "Metadata about an uploaded knowledge source (file or URL).",
+      "type": "object",
+      "properties": {
+        "documentId": { "type": "string" },
+        "workspaceId": { "type": "string" },
+        "name": { "type": "string", "description": "File name or web/YouTube title" },
+        "sourceType": { "type": "string", "enum": ["PDF", "DOCX", "TXT", "Markdown", "CSV", "Image", "URL", "YouTube"] },
+        "sourceUrl": { "type": "string", "description": "Original URL (for web/YouTube sources)" },
+        "status": { "type": "string", "enum": ["processing", "completed", "failed"] },
+        "progressMsg": { "type": "string", "description": "Currently running task or failure explanation" },
+        "characterCount": { "type": "number" },
+        "uploadedBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["documentId", "workspaceId", "name", "sourceType", "status"]
+    },
+    "Chunk": {
+      "title": "Document Chunk",
+      "description": "An extracted portion of text from a document to allow semantic retrieval.",
+      "type": "object",
+      "properties": {
+        "chunkId": { "type": "string" },
+        "documentId": { "type": "string" },
+        "workspaceId": { "type": "string" },
+        "text": { "type": "string", "description": "Extracted slice text string" },
+        "embedding": { "type": "array", "description": "Model text-embedding-004 vector representation of the text" },
+        "index": { "type": "number", "description": "Sequential chunk position in original doc" },
+        "metadata": { "type": "object", "description": "Page number, title, or line references" }
+      },
+      "required": ["chunkId", "documentId", "workspaceId", "text", "embedding", "index"]
+    },
+    "Conversation": {
+      "title": "Conversation Session",
+      "description": "A RAG chat conversation thread.",
+      "type": "object",
+      "properties": {
+        "conversationId": { "type": "string" },
+        "workspaceId": { "type": "string" },
+        "userId": { "type": "string", "description": "The user who created this" },
+        "title": { "type": "string", "description": "Summary title of thread" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["conversationId", "workspaceId", "userId", "title"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "An individual query or response message inside a conversation thread, including RAG citations.",
+      "type": "object",
+      "properties": {
+        "messageId": { "type": "string" },
+        "conversationId": { "type": "string" },
+        "sender": { "type": "string", "enum": ["user", "ai"] },
+        "text": { "type": "string" },
+        "citations": { "type": "array", "description": "List of source chunks used to generate the answer" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["messageId", "conversationId", "sender", "text"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Stores individual user records"
+    },
+    "/workspaces/{workspaceId}": {
+      "schema": { "$ref": "#/entities/Workspace" },
+      "description": "List of active shared workspaces"
+    },
+    "/workspaces/{workspaceId}/documents/{documentId}": {
+      "schema": { "$ref": "#/entities/Document" },
+      "description": "All indexed files and links in a workspace"
+    },
+    "/workspaces/{workspaceId}/chunks/{chunkId}": {
+      "schema": { "$ref": "#/entities/Chunk" },
+      "description": "All chunk vectors and text slices indexed in a workspace"
+    },
+    "/workspaces/{workspaceId}/conversations/{conversationId}": {
+      "schema": { "$ref": "#/entities/Conversation" },
+      "description": "Chat sessions in a workspace"
+    },
+    "/workspaces/{workspaceId}/conversations/{conversationId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/Message" },
+      "description": "All chat dialogue history within a session"
+    }
+  }
+}
